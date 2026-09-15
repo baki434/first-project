@@ -5,6 +5,7 @@ ifeq ($(OS),Windows_NT)
     HOST  := Windows
     EXT   := .exe
     LIBS  := -lws2_32
+    RPI_LIBS := -pthread
     SHELL := cmd.exe
     .SHELLFLAGS := /C
     ARM_BIN := C:/Program Files (x86)/Arm GNU Toolchain aarch64-none-linux-gnu/11.2 2022.02/bin
@@ -14,7 +15,8 @@ ifeq ($(OS),Windows_NT)
 else
     HOST := Linux
     EXT  :=
-    LIBS :=
+    LIBS := -pthread
+    RPI_LIBS := -pthread
     RPI_CC ?= aarch64-linux-gnu-gcc
     READELF ?= aarch64-linux-gnu-readelf
     MKDIR = mkdir -p "$(1)"
@@ -31,7 +33,7 @@ native:
 rpi:
 	@$(call MKDIR,build/rpi)
 	@echo [TOOLCHAIN] host=$(HOST) target=aarch64-none-linux-gnu
-	@$(RPI_CC) $(CFLAGS) $(SRC) -o $(RPI)
+	@$(RPI_CC) $(CFLAGS) $(SRC) -o $(RPI) $(RPI_LIBS)
 	@$(READELF) -h $(RPI) | findstr /C:"Class:" /C:"Machine:"
 	@echo [OK] Cross-compile tamamlandi: $(RPI)
 clean:

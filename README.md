@@ -3,6 +3,23 @@
 Tum derleme kurallari tek ve sade bir `Makefile` icindedir. Ek bir `.cmd`
 dosyasi kullanilmaz.
 
+TCP ve UDP modullerinde mesaj alma ayri bir is parcaciginda calisir. Bu sayede
+istemci ve sunucu sira beklemeden ayni anda mesaj gonderebilir ve alabilir;
+bir taraf art arda birden fazla mesaj da gonderebilir.
+
+## Eszamanli mesajlasma testi
+
+TCP sunucusu ve istemcisi iki ayri terminalde calistirilir:
+
+```text
+network_app -n tcp -t server -p 8080
+network_app -n tcp -t client -i SUNUCU_IP -p 8080
+```
+
+UDP testi icin `tcp` yerine `udp` yazilir. UDP sunucusu hedef istemcinin
+adresini ogrenebilmek icin ilk istemci mesajini bekler; bu ilk mesajdan sonra
+iki taraf da sira beklemeden mesaj gonderebilir. `exit` mesaji oturumu kapatir.
+
 ## Native derleme
 
 ```text

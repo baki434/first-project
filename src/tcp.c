@@ -2,11 +2,20 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "app_config.h"
 #include "input_utils.h"
 #include "platform.h"
+#include "thread_utils.h"
+
+typedef struct {
+    socket_t socket_value;
+    atomic_int running;
+    const char *peer_label;
+    const char *prompt;
+} tcp_chat_t;
 
 static int send_all(socket_t socket_value, const char *data, size_t size)
 {
@@ -72,12 +81,65 @@ static int receive_message(socket_t socket_value, char *message, size_t size)
     return 1;
 }
 
+static void *receive_messages(void *argument)
+{
+    tcp_chat_t *chat = argument;
+    char buffer[MAX_MESSAGE_SIZE];
+
+    while (atomic_load(&chat->running)) {
+        int result = receive_message(chat->socket_value, buffer, sizeof(buffer));
+
+        if (result <= 0) {
+            break;
+        }
+        printf("\n%s: %s\n%s", chat->peer_label, buffer, chat->prompt);
+        fflush(stdout);
+        if (strcmp(buffer, "exit") == 0) {
+            break;
+        }
+    }
+    atomic_store(&chat->running, 0);
+    return NULL;
+}
+
+static int run_chat(socket_t socket_value, const char *prompt,
+                    const char *peer_label)
+{
+    tcp_chat_t chat = {socket_value, ATOMIC_VAR_INIT(1), peer_label, prompt};
+    thread_t receiver;
+    char buffer[MAX_MESSAGE_SIZE];
+    int status = 0;
+
+    if (!thread_start(&receiver, receive_messages, &chat)) {
+        fprintf(stderr, "Alma is parcacigi baslatilamadi.\n");
+        return 1;
+    }
+
+    while (atomic_load(&chat.running) &&
+           read_line(prompt, buffer, sizeof(buffer))) {
+        if (!atomic_load(&chat.running)) {
+            break;
+        }
+        if (!send_message(socket_value, buffer)) {
+            status = 1;
+            break;
+        }
+        if (strcmp(buffer, "exit") == 0) {
+            break;
+        }
+    }
+
+    atomic_store(&chat.running, 0);
+    shutdown_socket(socket_value);
+    thread_join(receiver);
+    return status;
+}
+
 int run_tcp_server(int port)
 {
     socket_t server_socket = INVALID_SOCKET_VALUE;
     socket_t client_socket = INVALID_SOCKET_VALUE;
     struct sockaddr_in address = {0};
-    char buffer[MAX_MESSAGE_SIZE];
     int status = 1;
 
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -104,16 +166,7 @@ int run_tcp_server(int port)
     }
     printf("TCP client baglandi.\n");
 
-    while (receive_message(client_socket, buffer, sizeof(buffer)) > 0) {
-        printf("Client: %s\n", buffer);
-        if (strcmp(buffer, "exit") == 0 ||
-            !read_line("Server: ", buffer, sizeof(buffer)) ||
-            !send_message(client_socket, buffer) ||
-            strcmp(buffer, "exit") == 0) {
-            break;
-        }
-    }
-    status = 0;
+    status = run_chat(client_socket, "Server: ", "Client");
 
 cleanup:
     if (client_socket != INVALID_SOCKET_VALUE) CLOSE_SOCKET(client_socket);
@@ -126,7 +179,6 @@ int run_tcp_client(const char *ip_address, int port)
 {
     socket_t client_socket = INVALID_SOCKET_VALUE;
     struct sockaddr_in address = {0};
-    char buffer[MAX_MESSAGE_SIZE];
     int status = 1;
 
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -147,19 +199,7 @@ int run_tcp_client(const char *ip_address, int port)
     }
     printf("TCP client %s:%d adresine baglandi.\n", ip_address, port);
 
-    while (read_line("Client: ", buffer, sizeof(buffer))) {
-        if (!send_message(client_socket, buffer) || strcmp(buffer, "exit") == 0) {
-            break;
-        }
-        if (receive_message(client_socket, buffer, sizeof(buffer)) <= 0) {
-            break;
-        }
-        printf("Server: %s\n", buffer);
-        if (strcmp(buffer, "exit") == 0) {
-            break;
-        }
-    }
-    status = 0;
+    status = run_chat(client_socket, "Client: ", "Server");
 
 cleanup:
     if (client_socket != INVALID_SOCKET_VALUE) CLOSE_SOCKET(client_socket);

@@ -5,9 +5,12 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "command_handler.h"
 #include "input_utils.h"
 #include "platform.h"
 #include "thread_utils.h"
+
+static mutex_t udp_send_mutex;
 
 typedef struct {
     socket_t socket_value;
@@ -18,10 +21,23 @@ typedef struct {
     address_length_t peer_size;
 } udp_chat_t;
 
+static int send_udp_message(udp_chat_t *chat, const char *message)
+{
+    int result;
+
+    mutex_lock(&udp_send_mutex);
+    result = sendto(chat->socket_value, message, (int)strlen(message) + 1, 0,
+                    (struct sockaddr *)&chat->peer_address,
+                    chat->peer_size);
+    mutex_unlock(&udp_send_mutex);
+    return result >= 0;
+}
+
 static void *receive_messages(void *argument)
 {
     udp_chat_t *chat = argument;
     char buffer[MAX_MESSAGE_SIZE];
+    char response[MAX_MESSAGE_SIZE];
 
     while (atomic_load(&chat->running)) {
         int received = recvfrom(chat->socket_value, buffer, sizeof(buffer) - 1,
@@ -34,6 +50,16 @@ static void *receive_messages(void *argument)
             break;
         }
         buffer[received] = '\0';
+        if (strcmp(chat->prompt, "Server: ") == 0 &&
+            handle_saw_command(buffer, response, sizeof(response))) {
+            printf("\n[SAW] Komut: %s\n%s", buffer, chat->prompt);
+            fflush(stdout);
+            if (!send_udp_message(chat, response)) {
+                print_socket_error("sendto");
+                break;
+            }
+            continue;
+        }
         printf("\n%s: %s\n%s", chat->peer_label, buffer, chat->prompt);
         fflush(stdout);
         if (strcmp(buffer, "exit") == 0) {
@@ -65,8 +91,13 @@ static int run_chat(socket_t socket_value, const char *prompt,
         print_socket_error("setsockopt");
         return 1;
     }
+    if (!mutex_initialize(&udp_send_mutex)) {
+        fprintf(stderr, "Gonderme mutex'i baslatilamadi.\n");
+        return 1;
+    }
     if (!thread_start(&receiver, receive_messages, &chat)) {
         fprintf(stderr, "Alma is parcacigi baslatilamadi.\n");
+        mutex_destroy(&udp_send_mutex);
         return 1;
     }
 
@@ -75,9 +106,7 @@ static int run_chat(socket_t socket_value, const char *prompt,
         if (!atomic_load(&chat.running)) {
             break;
         }
-        if (sendto(socket_value, buffer, (int)strlen(buffer) + 1, 0,
-                   (struct sockaddr *)&chat.peer_address,
-                   chat.peer_size) < 0) {
+        if (!send_udp_message(&chat, buffer)) {
             print_socket_error("sendto");
             status = 1;
             break;
@@ -89,6 +118,7 @@ static int run_chat(socket_t socket_value, const char *prompt,
 
     atomic_store(&chat.running, 0);
     thread_join(receiver);
+    mutex_destroy(&udp_send_mutex);
     return status;
 }
 
@@ -99,6 +129,7 @@ int run_udp_server(int port)
     struct sockaddr_in client_address;
     address_length_t client_size;
     char buffer[MAX_MESSAGE_SIZE];
+    char response[MAX_MESSAGE_SIZE];
     int status = 1;
 
     server_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -127,10 +158,20 @@ int run_udp_server(int port)
             goto cleanup;
         }
         buffer[received] = '\0';
-        printf("Client: %s\n", buffer);
         if (strcmp(buffer, "exit") == 0) {
+            printf("Client: %s\n", buffer);
             status = 0;
             goto cleanup;
+        }
+        if (handle_saw_command(buffer, response, sizeof(response))) {
+            printf("[SAW] Komut: %s\n", buffer);
+            if (sendto(server_socket, response, (int)strlen(response) + 1, 0,
+                       (struct sockaddr *)&client_address, client_size) < 0) {
+                print_socket_error("sendto");
+                goto cleanup;
+            }
+        } else {
+            printf("Client: %s\n", buffer);
         }
     }
 

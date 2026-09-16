@@ -20,6 +20,22 @@ UDP testi icin `tcp` yerine `udp` yazilir. UDP sunucusu hedef istemcinin
 adresini ogrenebilmek icin ilk istemci mesajini bekler; bu ilk mesajdan sonra
 iki taraf da sira beklemeden mesaj gonderebilir. `exit` mesaji oturumu kapatir.
 
+## SAW komutlari
+
+Client mesaj satirinda `saw` on ekiyle sunucu komutlari calistirilabilir:
+
+```text
+saw info
+saw ping
+saw help
+```
+
+`saw info` sunucunun isletim sistemi, CPU ve RAM bilgilerini; `saw ping`
+`pong` yanitini; `saw help` ise komut listesini client'a dondurur. `saw ` ile
+baslamayan girdiler normal mesaj olarak iletilir. Otomatik komut yanitlari ile
+kullanici mesajlarinin socket uzerinde karismamasi icin gonderme mutex'i
+kullanilir.
+
 ## Native derleme
 
 ```text

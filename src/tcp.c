@@ -6,9 +6,12 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "command_handler.h"
 #include "input_utils.h"
 #include "platform.h"
 #include "thread_utils.h"
+
+static mutex_t tcp_send_mutex;
 
 typedef struct {
     socket_t socket_value;
@@ -81,16 +84,36 @@ static int receive_message(socket_t socket_value, char *message, size_t size)
     return 1;
 }
 
+static int send_message_locked(socket_t socket_value, const char *message)
+{
+    int result;
+
+    mutex_lock(&tcp_send_mutex);
+    result = send_message(socket_value, message);
+    mutex_unlock(&tcp_send_mutex);
+    return result;
+}
+
 static void *receive_messages(void *argument)
 {
     tcp_chat_t *chat = argument;
     char buffer[MAX_MESSAGE_SIZE];
+    char response[MAX_MESSAGE_SIZE];
 
     while (atomic_load(&chat->running)) {
         int result = receive_message(chat->socket_value, buffer, sizeof(buffer));
 
         if (result <= 0) {
             break;
+        }
+        if (strcmp(chat->prompt, "Server: ") == 0 &&
+            handle_saw_command(buffer, response, sizeof(response))) {
+            printf("\n[SAW] Komut: %s\n%s", buffer, chat->prompt);
+            fflush(stdout);
+            if (!send_message_locked(chat->socket_value, response)) {
+                break;
+            }
+            continue;
         }
         printf("\n%s: %s\n%s", chat->peer_label, buffer, chat->prompt);
         fflush(stdout);
@@ -110,8 +133,13 @@ static int run_chat(socket_t socket_value, const char *prompt,
     char buffer[MAX_MESSAGE_SIZE];
     int status = 0;
 
+    if (!mutex_initialize(&tcp_send_mutex)) {
+        fprintf(stderr, "Gonderme mutex'i baslatilamadi.\n");
+        return 1;
+    }
     if (!thread_start(&receiver, receive_messages, &chat)) {
         fprintf(stderr, "Alma is parcacigi baslatilamadi.\n");
+        mutex_destroy(&tcp_send_mutex);
         return 1;
     }
 
@@ -120,7 +148,7 @@ static int run_chat(socket_t socket_value, const char *prompt,
         if (!atomic_load(&chat.running)) {
             break;
         }
-        if (!send_message(socket_value, buffer)) {
+        if (!send_message_locked(socket_value, buffer)) {
             status = 1;
             break;
         }
@@ -132,6 +160,7 @@ static int run_chat(socket_t socket_value, const char *prompt,
     atomic_store(&chat.running, 0);
     shutdown_socket(socket_value);
     thread_join(receiver);
+    mutex_destroy(&tcp_send_mutex);
     return status;
 }
 

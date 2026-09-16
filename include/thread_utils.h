@@ -15,10 +15,14 @@
 #include <windows.h>
 /** Windows is parcacigi taniticisi icin ortak proje tipi. */
 typedef HANDLE thread_t;
+/** Windows kritik bolgesi icin ortak mutex tipi. */
+typedef CRITICAL_SECTION mutex_t;
 #else
 #include <pthread.h>
 /** POSIX is parcacigi taniticisi icin ortak proje tipi. */
 typedef pthread_t thread_t;
+/** POSIX mutex taniticisi icin ortak mutex tipi. */
+typedef pthread_mutex_t mutex_t;
 #endif
 
 /** Yeni bir is parcaciginda calistirilabilecek fonksiyon tipi. */
@@ -58,5 +62,21 @@ int set_receive_timeout(socket_t socket_value, int milliseconds);
  * @return Yeniden denenebilir durumda 1, diger hatalarda 0.
  */
 int receive_should_retry(void);
+
+/**
+ * Bir mutex nesnesini kullanima hazirlar.
+ * @param mutex Hazirlanacak mutex.
+ * @return Basarida 1, baslatma hatasinda 0.
+ */
+int mutex_initialize(mutex_t *mutex);
+
+/** Paylasilan bolgeye girmeden once mutex kilidini alir. */
+void mutex_lock(mutex_t *mutex);
+
+/** Paylasilan bolgedeki islem tamamlaninca mutex kilidini birakir. */
+void mutex_unlock(mutex_t *mutex);
+
+/** Mutex kaynaklarini serbest birakir. */
+void mutex_destroy(mutex_t *mutex);
 
 #endif

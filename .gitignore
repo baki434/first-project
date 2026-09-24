@@ -3,3 +3,9 @@ build/
 *.d
 *.exe
 *.out
+*.log
+*.zip
+certs/
+server.crt
+server.key
+users.json
